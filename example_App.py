@@ -1,6 +1,7 @@
 # A Simple CLI only application to give you an idea of how to use 'pyCrust'
 # Written using Python 3.10.5 64-Bit
 
+import time
 import pyCrust
 
 '''
@@ -47,20 +48,40 @@ UI Example
 import tkinter as tk
 
 rootui = pyCrust.UI()
+# Setting what theme I want.
+rootui.use_theme('Resetti')
 
 # Add your own widgets here.
+
 class ExampleWidget(tk.Frame):
     def __init__(self, master):
         super().__init__(master=master)
 
-        self.label = tk.Label(
+        self.button = tk.Button(
             self,
-            text="Example Text for our App!"
+            text="Hide Console Window",
+            command=self.hide_console
         )
-        self.label.grid(row=0, column=0)
+        self.button.grid(row=0, column=0)
 
-# Adding to rootui pane.
-my_widget = ExampleWidget(rootui)
-rootui.add(my_widget)
+    def button_cmd(self):
+        rootui.add_task(self.dummyTask, args=(2,9), name='LilDummy')
+
+    def dummyTask(self, a, b):
+        print('... IM WORKING ...')
+        time.sleep(5)
+        print(a + b * 16)
+
+    def hide_console(self):
+        rootui.minimize_console()
+
+# Adding some widgets to the different 'zones'.
+#rootui.set_frame(ExampleWidget)
+#rootui.add_sidebar(ExampleWidget)
+rootui.show_console()
+
+
+
 
 rootui.launch()
+# Anything beyond this point will be blocked by the UI 'mainloop'.

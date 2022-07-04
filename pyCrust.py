@@ -16,7 +16,6 @@
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 import os
-from re import M
 import time
 import json
 import queue
@@ -24,7 +23,9 @@ import sqlite3
 import logging
 import threading
 import tkinter as tk
-from tkinter import ttk, font as tk_font 
+from tkinter import ttk, font as tk_font
+from turtle import back
+ 
 
 VERSION = '0.0'
 ROOTPATH = os.getcwd()
@@ -282,10 +283,10 @@ class UI(tk.Tk):
         # Start the 'logic' thread to run non-UI code. The UI must be 
         # multi-threaded to prevent the Tk "mainloop" from hanging if we need 
         # to process something for some time.
-        self.LogicThread()
+        self._Logic = self.LogicThread()
 
         # Intializing Main Tk/Ttk Classes
-        #self.BottomBar = Tk_BottomBar(self.file_queue)
+        self._ThemeEngine = self.ThemeEngine()
         self.MasterPane = self.UI_RootPane(self)
         self.BottomBar = self.UI_BottomBar(self)
 
@@ -293,30 +294,14 @@ class UI(tk.Tk):
         self.w_fullscreen = False
 
         # Configuring Tk ELements for Main Window.
-        self.config_widgets()
-        self.config_grid()
-        self.config_window()
-        self.config_binds()
-        
-        # STARTING TK/TTK UI
+        self._config_widgets()
+        self._config_grid()
+        self._config_window()
+        self._config_binds()
 
-    # pyCrust Methods - Available for Dev needs!
-    def launch(self):
-        '''
-        Formally launches the UI 'mainloop'. UI Definitions are frozen once 
-        called.
-        '''
-        self.mainloop()
     
-    def shutdown(self):
-        '''
-        Formally shuts down the UI 'mainloop' closing the tkinter session. 
-        '''
-        self.mainloop()
-
-
     # Tk/UI Methods
-    def config_widgets(self):
+    def _config_widgets(self):
         '''
         Tk Widgets NOT drawn by Tk_RootPane are defined here.
 
@@ -324,7 +309,7 @@ class UI(tk.Tk):
         '''
         self.configure(background="black")
 
-    def config_grid(self):
+    def _config_grid(self):
         '''
         Initalized Frames and "config_widgets" content is added to the UI 
         geometry manager here. - using tk.grid().
@@ -340,7 +325,7 @@ class UI(tk.Tk):
             columnspan=3, 
             sticky="sew")
 
-    def config_window(self):
+    def _config_window(self):
         '''
         This method defines the *Master* TK window settings, such as the
         default render size, or "top menu" configuration.
@@ -351,8 +336,8 @@ class UI(tk.Tk):
         #titlebar_photo = tk.PhotoImage(file=self.RPATH + "\\core\\bcamp.gif")
         #self.iconphoto(False, titlebar_photo)
 
-    def config_binds(self):
-        #self.bind('<Control-i>', self.reveal_install_loc)
+    def _config_binds(self):
+        self.bind('<Control-`>', self.reveal_install_loc)
         #self.bind('<Control-d>', self.reveal_download_loc)
         #self.bind('<Control-,>', self.open_settings_menu)
         #self.bind('<Control-n>', self.Workbench.import_tab)
@@ -364,7 +349,7 @@ class UI(tk.Tk):
         #self.bind('<Alt-Return>', self.make_fullscreen)
         pass
 
-    def ttk_theme_changes(self):
+    def _ttk_theme(self):
         '''
         Container method to organize all Ttk theme changes used globally 
         throughout the UI.
@@ -455,13 +440,58 @@ class UI(tk.Tk):
             foreground=myTabForegroundColor, lightcolor=myTabBarColor,
             borderwidth=0, bordercolor=myTabBackgroundColor, font=self.tab_font)
 
-    def add_sidebar(self):
-        #TODO
-        pass
 
-    def add(self, widget):
-        self.MasterPane.add(widget)
+    # pyCrust Methods - Available for Dev needs!
+    def set_frame(self, widget):
+        self.MasterPane._main.set_frame(widget)
 
+    def add_sidebar(self, widget):
+        self.MasterPane._sidebar.add(widget)
+    
+    def show_console(self):
+        self.MasterPane.show_console()
+    
+    def minimize_console(self):
+        self.MasterPane.minimize_console()
+    
+    def reveal_install_loc(self, event): 
+        os.startfile(ROOTPATH)
+    
+    def use_theme(self, theme_name):
+        self._ThemeEngine.style.theme_use(theme_name)
+
+    def launch(self):
+        '''
+        Formally launches the UI 'mainloop'. UI Definitions are frozen once 
+        called.
+        '''
+        self.mainloop()
+    
+    def shutdown(self):
+        '''
+        Formally shuts down the UI 'mainloop' closing the tkinter session. 
+        '''
+        self.mainloop()
+
+    def add_task(self, proc, args=None, name=None,):
+            '''
+            Passthrough function to add a executable object to the 'Logic Thread'.
+
+            When using the UI, we need to do long running work on this thread to
+            avoid hanging the UI which *MUST* run on the main thread.
+            '''
+            # Format input vars.
+            if name == None:
+                _name = ('logic.Thread-'+str(self._Logic.qsize))
+            else:
+                _name = ('logic.'+name+str(self._Logic.qsize))
+            # Pass vars to LogicThread.add(). Error handling done there.
+            self._Logic.add(proc, args, _name)
+            # Write a Debug log message.
+            write((_name + ' added to logicDaemon.'), log_level=2)
+
+
+    
     # Sub-Classes for UI.
     class LogicThread:
         '''
@@ -476,6 +506,8 @@ class UI(tk.Tk):
         '''
         def __init__(self, freq='normal'):
             self.q = queue.Queue()
+            self.qsize = 0 # Counter for items in Queue. Explict for accuracy.
+            self.freq = freq
 
             # Vars used for Progressbar updates. Callbacks are registered in UI.
             #self.queue_size = 0
@@ -489,15 +521,187 @@ class UI(tk.Tk):
             Daemon Thread for FileOpsQueue
             '''
             write('Starting logicDaemon Processing Loop')
-            while True: # Infin. Loop
+            # Calc thread poll frequency.
+            if self.freq == 'lazy':
+                _pollrate = 2.0
+            elif self.freq == 'normal':
+                _pollrate = 1.0
+            elif self.freq == 'agro':
+                _pollrate = 0.37
+            
+            # Enter Infinite Loop for 'logicDaemon'
+            while True:
+                # Get new process pending in queue.
                 item = self.q.get()
-                #print("$.fq", item)
+                #print("$.", item)
                 item.start() # Starting thread_obj
                 # Enter nested while until 'item' thread is complete.
                 while item.is_alive():
-                    time.sleep(0.5)
+                    time.sleep(_pollrate)
                 # Exit and go to next item in Queue if any.
                 self.q.task_done()
+                self.qsize -= 1
+        
+        def add(self, proc, args=None, name_string=None):
+            '''
+            Function to add a process into the LogicThread Queue. The 'proc'
+            object will be converted to a Thread obj, and put into the 
+            'logicDaemon' queue to be executed.
+            
+            This will be spawned as a child thread with schema 'logic.<Name>'. 
+            <Name> is defined by the 'name_string' if provided. If no name is 
+            provided, the name will default to a 'logic.Thread-00' with '00' 
+            being the number of items ahead of the new process in the queue.
+            '''
+            print('.add')
+            # First, increment self.qsize
+            self.qsize += 1
+            # Convert 'proc' to a thread Object.
+            new_thread = self.ReturnThread(
+                target=proc,
+                name=name_string,
+                args=args
+            )
+            # Now, put into into the "Worker Thread"
+            if type(proc) != None:
+                self.q.put(new_thread)
+            else:
+                print('logic.add_task: ERROR! proc obj is <None>')
+        
+
+        class ReturnThread(threading.Thread):
+            '''
+            Subclass of the 'threading.Thread' class, with the benefit of a 
+            the return value being available for retreival if needed.
+            '''
+            def __init__(self, group=None, target=None, name=None,
+                        args=(), kwargs={}, Verbose=None):
+                threading.Thread.__init__(self, group, target, name, 
+                                        args, kwargs)
+                self._return = None
+
+            def run(self):
+                print(type(self._target))
+                if self._target is not None:
+                    self._return = self._target(*self._args,
+                                                        **self._kwargs)
+            def join(self, *args):
+                threading.Thread.join(self, *args)
+                return self._return
+
+
+    class ThemeEngine:
+        def __init__(self):
+            write("ThemeEngine is starting!")
+            self.style = ttk.Style()
+            # Generate available custom themes.
+            self.create_themes()
+            write("Available Themes:" + str(self.style.theme_names()), 1) 
+        
+        def create_themes(self):
+            '''
+            FUTURE: Reads a config file of some kind and will generate themes
+            based on the contents. 
+            CURRENT: Concept space for defining themes.
+            '''
+            #┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+            #┃  Resetti --- Theme Design. (0) Darkest ->- (4) Lightest        ┃
+
+            # ->- Background 
+            bg_0 = "#1D2021"
+            bg_1 = "#282828"
+            bg_2 = "#3C3836"
+            bg_3 = "#504945"
+            bg_4 = "#665C54"
+            # ->- Foreground
+            fg_0 = "#A89984"
+            fg_1 = "#BDAE93"
+            fg_2 = "#D5C4A1"
+            fg_3 = "#EBDBB2"
+            fg_4 = "#FBF1C7"
+            # ->- Syntax/ANSI codes
+            ansi_red = "#CC241D"
+            ansi_green = "#98971A"
+            ansi_blue = "#458588"
+            ansi_yellow = "#D79921"
+            ansi_purple = "#B16286"
+            ansi_aqua = "#689D6A"
+            ansi_orange = "#FE8019"
+
+            #┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+            self.style.theme_create(
+                themename='Resetti',
+                parent='default',
+                settings={
+                    #--> Default Button
+                    "TButton": {
+                        "configure": {"padding": 5, "relief": 'flat'},
+                        "map": {
+                            "background": [("active", bg_3),
+                                            ("!disabled", bg_2)],
+                            "fieldbackground": [("!disabled", bg_2)],
+                            "foreground": [("focus", fg_3),
+                                            ("!disabled", fg_2)]
+                        }
+                    },
+                    #--> Default Frame
+                    "TFrame": {
+                        "configure": {"padding": 1},
+                        "map": {
+                            "background": [("active", bg_1),
+                                            ("!disabled", bg_1)],
+                        }
+                    },
+                    #--> BottomBar Frame
+                    "BottomBar.TFrame": {
+                        "configure": {"padding": 1},
+                        "map": {
+                            "background": [("active", bg_0),
+                                            ("!disabled", bg_0)],
+                        }
+                    },
+                    #--> BottomBar Label
+                    "BottomBar.TLabel": {
+                        "configure": {
+                            "padding": 1,
+                            "foreground": fg_0
+                        },
+                        "map": {
+                            "background": [("active", bg_0),
+                                            ("!disabled", bg_0)],
+                        }
+                    },
+                    #--> BottomBar Separator
+                    "BottomBarSep.TFrame": {
+                        "configure": {
+                            "padding": 0,
+                            "height": 1
+                            }
+                    },
+                    #--> Console Frame
+                    "Console.TFrame": {
+                        "configure": {"padding": 1},
+                        "map": {
+                            "background": [("active", bg_0),
+                                            ("!disabled", bg_0)],
+                        }
+                    },
+                    #--> Console Button
+                    "Console.TButton": {
+                        "configure": {
+                            "padding": 1,
+                            "relief": 'flat'
+                        },
+                        "map": {
+                            "background": [("active", bg_0),
+                                            ("!disabled", bg_0)],
+                            "foreground": [("active", ansi_red),
+                                            ("!disabled", fg_0)],
+                        }
+                    },
+                }
+            )
+
 
     # UI Widget Default Definitions.
     class UI_RootPane(tk.PanedWindow):
@@ -507,16 +711,151 @@ class UI(tk.Tk):
         via Sash grips.
         '''
         def __init__(self, master):
-            super().__init__(master)
+            super().__init__(master=master, orient=tk.HORIZONTAL)
             self.configure(
-                handlesize=16,
-                handlepad=100,
-                sashwidth=2,
-                background="#1D2021"
-        )
+                background="#32302F",
+                sashwidth=2
+            )
+            self.config_widgets()
+
+        def config_widgets(self):
+            '''
+            Defines the Sidebar, Main, and Console Windows.
+            '''
+            self._main = UI.UI_Main(self)
+            self._sidebar = UI.UI_Sidebar(self)
+            self.add(self._sidebar)
+            self.add(self._main)
+        
+        def show_console(self):
+            '''
+            Expands the console window. This is default behavior when no 
+            'frame' is set.
+            '''
+            # Expliclty defining in the event of a collapse.
+            self._console = UI.UI_Console
+            self._main.add_child(self._console)
+        
+        def minimize_console(self):
+            '''
+            Collapses the console window, which can be expanded later.
+            '''
+            self._main.forget(1)
+        
+        def hide_console(self):
+            '''
+            Removes the console from the window completely.
+            '''
+
+    class UI_Main(tk.PanedWindow):
+        def __init__(self, master):
+            super().__init__(master=master, orient=tk.VERTICAL)
+            self.configure(
+                background="#32302F",
+                sashwidth=2
+            )
+            # And render main frame.
+            self._frame = ttk.Frame(
+                self,
+            )
+            self.add(self._frame, )
+
+        def set_frame(self, widget):
+            _widget = widget(self._frame)
+            _widget.grid(row=0, column=0)
+
+        def add_child(self, widget):
+            # Initalize w/ local parent
+            _widget = widget(self)
+            self.add(_widget, height=150)
 
 
-    class UI_BottomBar(tk.Frame):
+    class UI_Frame(ttk.Frame):
+        def __init__(self, master):
+            super().__init__(master=master)
+        
+        def add(self, widget):
+            # Initalize widget w/ local parent.
+            _widget = widget(self)
+            # Place via tk.grid()
+            # TODO increment row, col, etc
+            _widget.grid(row=0, column=0)            
+
+
+    class UI_Sidebar(UI_Frame):
+        def __init__(self, master):
+            super().__init__(master=master)
+        
+        def add(self, widget):
+            print("Superclassing w/ UI_Sidebar.")
+            return super().add(widget)
+        
+
+    class UI_Console(UI_Frame):
+        def __init__(self, master):
+            super().__init__(master=master)
+            self._bg = '#1D2021'
+            self._fg = '#83A598'
+            self._cursor = '#FABD2F'
+            self._font = tk_font.Font(
+                family="Consolas", size=10, weight="normal", slant="roman")
+            
+            self.config_widgets()
+            self.config_grid()
+        
+        def add(self, widget):
+            print('Superclassing UI_Frame in Console!')
+            return super().add(widget)
+        
+        def config_widgets(self):
+            # Top "MenuBar"
+            self._topbar = ttk.Frame(
+                self,
+                style="Console.TFrame"
+            )
+            self._minimize = ttk.Button(
+                self._topbar,
+                style="Console.TButton",
+                text="x",
+            )
+            # Textbox for console outputs.
+            self._text = tk.Text(
+                self,
+                background=self._bg,
+                foreground=self._fg,
+                font=self._font,
+                insertbackground=self._cursor,
+                insertwidth=3,
+                padx=4,
+                pady=3,
+                relief='flat',
+                wrap='word', 
+            )
+            # Debug pre-fill
+            self._text.insert(tk.END, '''
+Checking for an exisisting config.JSON file.
+JSON file already exist!
+Successfully loaded the config file.
+{'version': '0.0', 'username': 'toyolandi', 'theme': 'Resetto'}
+SQLite3 started successfully! - Connected to DB.
+Starting logicDaemon Processing Loop
+ThemeEngine is starting!
+Available Themes:('Resetti', 'winnative', 'clam', 'alt', 'default', 'classic', 'vista', 'xpnative')
+Superclassing w/ UI_Sidebar.
+            ''')
+        
+        def config_grid(self):
+            self.rowconfigure(1, weight=1)
+            self.columnconfigure(1, weight=1)
+            self._topbar.grid(row=0, column=1, sticky='new')
+            self._topbar.columnconfigure(0, weight=1)
+            self._minimize.grid(row=0, column=0, sticky='nse')
+
+            self._text.grid(row=1, column=1, sticky='nsew')
+            
+
+
+    class UI_BottomBar(ttk.Frame):
         '''
         A dynamic Frame at the bottom of the UI to store Connection status, and
         Progressbar details.
@@ -531,68 +870,59 @@ class UI(tk.Tk):
             self.config_grid()
 
         def config_widgets(self):
-            # Font
-            self.def_font = tk_font.Font(
-                family="Segoe UI", size=8, weight="normal", slant="roman")
-
-            # Colors
-            self.base_bg = "#282828"
-            self.base_fg = "#7E7E71"
-            self.prog_fg = "#A6E22E"
-
             # Root Background color
             self.configure(
-                background=self.base_bg
+                style="BottomBar.TFrame"
             )
-
-            # FileOps Frame
-            self.left_frame = tk.Frame(
+            # Left Frame
+            self.left_frame = ttk.Frame(
                 self,
-                background=self.base_bg
+                style="BottomBar.TFrame"
             )
-            self.queue_label = tk.Label(
+            self.queue_label = ttk.Label(
                 self.left_frame,
-                #textvariable=self.queue_strVar,
-                background=self.base_bg,
-                foreground=self.base_fg,
-                relief="flat"
+                style="BottomBar.TLabel"
             )        
-            self.progress_percent = tk.Label(
+            self.progress_percent = ttk.Label(
                 self.left_frame,
-                #textvariable=self.progress_perc_strVar,
-                background=self.base_bg,
-                foreground=self.prog_fg           
+                style="BottomBar.TLabel"       
             )
-            self.progress_label = tk.Label(
+            self.progress_label = ttk.Label(
                 self.left_frame,
-                #textvariable=self.progress_strVar,
-                background=self.base_bg,
-                foreground=self.base_fg,
+                style="BottomBar.TLabel"
             )
-
-
-            # Connectivity/Ver Frame
-            self.right_frame = tk.Frame(
+            # Right/Version Frame
+            self.right_frame = ttk.Frame(
                 self,
-                background=self.base_bg
+                style="BottomBar.TFrame"
             )
-            self.bb_ver = tk.Label(
+            self.bb_ver = ttk.Label(
                 self.right_frame,
                 text=VERSION,
-                background=self.base_bg,
-                foreground=self.base_fg,
-                font=self.def_font
+                style="BottomBar.TLabel"
+            )
+            # Seperator
+            self.bb_seperator = ttk.Frame(
+                self,
+                style="BottomBarSep.TFrame"
+            )
+            self.bb_ver_tt = UI.CustomTk_CreateToolTip(
+                self.bb_ver, "pyCrust Version\nWritten by Collin Spears."
             )
 
         def config_grid(self):
-            self.rowconfigure(0, weight=1)
+            #self.rowconfigure(0, weight=1)
+            self.rowconfigure(1, weight=1)
             self.columnconfigure(0, weight=1)
             # Root Frames 
+            self.bb_seperator.grid(
+                row=0, column=0, columnspan=2, sticky='new'
+            )
             self.left_frame.grid(
-                row=0, column=0, sticky="nsw"
+                row=1, column=0, sticky="nsw"
             )
             self.right_frame.grid(
-                row=0, column=1, sticky='nse'
+                row=1, column=1, sticky='nse'
             )
 
             # Filesops Frame Grid
@@ -756,7 +1086,7 @@ class UI(tk.Tk):
             if event.keysym == "Up":
                 self.autocomplete(-1) # cycle to previous hit
             # perform normal autocomplete if event is a single key or an umlaut
-            if len(event.keysym) == 1 or event.keysym in CustomTk_autoEntry.tk_umlauts:
+            if len(event.keysym) == 1 or event.keysym in self.CustomTk_autoEntry.tk_umlauts:
                 self.autocomplete()
 
 
