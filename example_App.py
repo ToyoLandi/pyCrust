@@ -15,7 +15,7 @@ Log Levels:
     2 ... Debug Level logging written to 'main.log'
 
 '''
-applog = pyCrust.Logging()
+#applog = pyCrust.Logging()
 
 
 '''
@@ -79,9 +79,7 @@ class ExampleWidget(tk.Frame):
 #rootui.set_frame(ExampleWidget)
 #rootui.add_sidebar(ExampleWidget)
 rootui.show_console()
-
-
-
-
+pyCrust.write ('test to UI message!!', 1, 1)
+pyCrust.write ('test to non-UI message!!', 1, 0)
 rootui.launch()
 # Anything beyond this point will be blocked by the UI 'mainloop'.
