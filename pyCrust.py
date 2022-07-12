@@ -28,7 +28,7 @@ from tkinter import ttk, font as tk_font
 from turtle import back
  
 
-VERSION = '0.0'
+VERSION = '0.1'
 ROOTPATH = os.getcwd()
 ACTIVE_CONSOLE = None
 
@@ -51,8 +51,11 @@ class write:
     def write_outputs(self):
         # Handle UI output location
         if self.active_console != None and self.redirect == 1:
-            print("\t ui>", self.string)
-            self.active_console.std_console(self.string)
+            if self.log_level == 2: # If Debug Message
+                self.active_console.debug_console(self.string)
+            else:
+                self.active_console.std_console(self.string)
+
         elif self.redirect == 0:
             print(str(self.string))
 
@@ -459,7 +462,7 @@ class UI(tk.Tk):
         self.RootPane.set_mainframe(widget)
 
     def add_sidebar(self, widget):
-        self.RootPane._sidebar.add(widget)
+        self.RootPane.add_sidebar(widget)
     
     def show_console(self):
         '''
@@ -484,6 +487,8 @@ class UI(tk.Tk):
         else:
             self.show_console() 
             self.console_shown = True
+        # Flush focus from button by setting to root. Removing ticks
+        self.focus_set()
 
     def reveal_install_loc(self, event): 
         os.startfile(ROOTPATH)
@@ -658,7 +663,9 @@ class UI(tk.Tk):
             ansi_purple = "#B16286"
             ansi_aqua = "#689D6A"
             ansi_orange = "#FE8019"
-
+            # ->- Fonts
+            self.resetti_font = tk_font.Font(
+                family="Segoe UI", size=10, weight="normal", slant="roman")            
             #┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
             self.style.theme_create(
                 themename='Resetti',
@@ -685,7 +692,7 @@ class UI(tk.Tk):
                     },
                     #--> BottomBar Frame
                     "BottomBar.TFrame": {
-                        "configure": {"padding": 1},
+                        "configure": {"padding": 0},
                         "map": {
                             "background": [("active", bg_0),
                                             ("!disabled", bg_0)],
@@ -695,7 +702,8 @@ class UI(tk.Tk):
                     "BottomBar.TLabel": {
                         "configure": {
                             "padding": 1,
-                            "foreground": fg_0
+                            "foreground": fg_0,
+                            "font": self.resetti_font,
                         },
                         "map": {
                             "background": [("active", bg_0),
@@ -706,12 +714,13 @@ class UI(tk.Tk):
                     "BottomBar.TButton": {
                         "configure": {
                             "padding": 1,
-                            "relief": 'flat'
+                            "relief": 'flat',
+                            "font": self.resetti_font,
                         },
                         "map": {
                             "background": [("active", bg_0),
                                             ("!disabled", bg_0)],
-                            "foreground": [("active", fg_0),
+                            "foreground": [("active", fg_3),
                                             ("!disabled", fg_0)],
                         }
                     },
@@ -774,7 +783,7 @@ class UI(tk.Tk):
                 sashwidth=2
             )
             self._sidebar = UI.UI_Sidebar(self)
-            self.add(self._sidebar)
+            #self.add(self._sidebar)
             self.add(self._main)
         
         def show_console(self):
@@ -808,6 +817,9 @@ class UI(tk.Tk):
                     sticky='nsew'
                 )
 
+        def add_sidebar(self, widget):
+            print("TODO - UI_RootPane.add_sidebar")
+
 
     class UI_Frame(ttk.Frame):
         def __init__(self, master):
@@ -835,12 +847,13 @@ class UI(tk.Tk):
             super().__init__(master=master)
             self.ui = ui
             self._bg = '#1D2021'
-            self._fg = '#83A598'
+            self._fg = '#B8BB26'
             self._cursor = '#FABD2F'
             self._font = tk_font.Font(
-                family="Consolas", size=10, weight="normal", slant="roman")
+                family="Consolas", size=12, weight="normal", slant="roman")
             
             self.config_widgets()
+            self.config_tags()
             self.config_grid()
         
         def add(self, widget):
@@ -856,7 +869,7 @@ class UI(tk.Tk):
             self._minimize = ttk.Button(
                 self._topbar,
                 style="Console.TButton",
-                text="x",
+                text="🆇",
                 command=self.ui.minimize_console
             )
             # Textbox for console outputs.
@@ -885,11 +898,30 @@ class UI(tk.Tk):
 
             self._text.grid(row=1, column=1, sticky='nsew')
 
+        def config_tags(self):
+            '''
+            Defines the style for tags used in "self._text"
+            '''
+            self._text.tag_config(
+                "std",
+                foreground="#B8BB26"
+            )
+            self._text.tag_config(
+                "debug",
+                foreground="#FB4934"
+            )
+
         def std_console(self, string):
             '''
             Writes output tagged as "Standard" to the console.
             '''
-            self._text.insert (tk.END, (str(string) + '\n'))
+            self._text.insert (tk.END, (str(string) + '\n'), ("std"))
+
+        def debug_console(self, string):
+            '''
+            Writes output tagged as "Debug" to the console.
+            '''
+            self._text.insert (tk.END, (str(string) + '\n'), ("debug",))
 
 
     class UI_BottomBar(ttk.Frame):
@@ -938,6 +970,7 @@ class UI(tk.Tk):
                 self.right_frame,
                 style="BottomBar.TButton",
                 text=">_",
+                cursor='hand2',
                 command=self.ui._toggle_console
             )            
             self.bb_ver = ttk.Label(
@@ -983,7 +1016,6 @@ class UI(tk.Tk):
             # Conn Frame Grid
             self.bb_console.grid(row=0, column=0, sticky='se', padx=5, pady=5)
             self.bb_ver.grid(row=0, column=1, sticky='se', padx=5, pady=5)
-
 
         # ProgressBar Methods
         def update_progressbar(self, new_progress_obj):
@@ -1171,7 +1203,6 @@ class UI(tk.Tk):
                 self.event_generate("<<TextModified>>")
 
             return result
-
 
 
 # Custom Error Exception codes for pyCrust

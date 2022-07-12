@@ -80,6 +80,7 @@ class ExampleWidget2(tk.Frame):
         self.button.grid(row=0, column=0)
 
     def button_cmd(self):
+        pyCrust.write ('UserApp: A std from a button!', 1, 1)
         rootui.add_task(self.dummyTask, args=(2,9), name='LilDummy')
 
     def dummyTask(self, a, b):
@@ -93,10 +94,8 @@ class ExampleWidget2(tk.Frame):
 #rootui.set_frame(ExampleWidget)
 #rootui.add_sidebar(ExampleWidget)
 #rootui.show_console()
-pyCrust.write ('test to UI message!!', 1, 1)
-pyCrust.write ('test to non-UI message!!', 1, 0)
-
-rootui.set_frame(ExampleWidget)
+pyCrust.write ('UserApp: This is a std log message.', 1, 1)
+pyCrust.write ('UserApp: This is a debug log message.', 2, 1)
 rootui.set_frame(ExampleWidget2)
 rootui.launch()
 # Anything beyond this point will be blocked by the UI 'mainloop'.
