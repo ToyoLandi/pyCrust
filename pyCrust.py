@@ -18,8 +18,8 @@
 import os
 import time
 import json
-import queue
 import ctypes
+import queue
 import sqlite3
 import logging
 import threading
@@ -30,7 +30,6 @@ from turtle import back
 
 VERSION = '0.0'
 ROOTPATH = os.getcwd()
-ACTIVE_CONSOLE = None
 
 
 class write:
@@ -38,25 +37,18 @@ class write:
     Allows for print statements to be sent to the Terminal (print), as well
     as to the standard logging, and to the UI if requested.
     '''
-    def __init__(self, string, log_level=0, redirect=0):
+    def __init__(self, string, log_level=0, ui=None, redirect=0):
         self.string = string
-        
         #pyCrust Hooks
         self.log_level = log_level
-        self.active_console = ACTIVE_CONSOLE
+        self.init_ui = ui
         self.redirect = redirect
         # Actually send string to defined locations.
         self.write_outputs()
 
     def write_outputs(self):
-        # Handle UI output location
-        if self.active_console != None and self.redirect == 1:
-            print("\t ui>", self.string)
-            self.active_console.std_console(self.string)
-        elif self.redirect == 0:
+        if self.redirect == 0:
             print(str(self.string))
-
-        # Handle Log handler location
         if self.log_level == 1:
             # Write to Standard log.
             logging.info(self.string)
@@ -100,6 +92,7 @@ class Config:
             string=('Checking for an exisisting config.' + self.extension 
                 + ' file.'),
             log_level=self.log_level,
+            ui=self.init_ui,
             redirect=self.redirect,
         )
         alive = os.access(self._confpath, os.W_OK)
@@ -107,6 +100,7 @@ class Config:
             write(
                 string='JSON file already exist!',
                 log_level=self.log_level,
+                ui=self.init_ui,
                 redirect=self.redirect,
             )
         if alive and self.extension == 'XML':
@@ -122,6 +116,7 @@ class Config:
             write(
                 string='Generated a new "config.json" file.',
                 log_level=self.log_level,
+                ui=self.init_ui,
                 redirect=self.redirect,
             )
 
@@ -133,6 +128,7 @@ class Config:
                 write(
                     string='Successfully loaded the config file.',
                     log_level=self.log_level,
+                    ui=self.init_ui,
                     redirect=self.redirect,
                 )
                 return self._config
@@ -142,6 +138,7 @@ class Config:
             write(
                 string='Unable to find the config file at "' + self._confpath + '"',
                 log_level=self.log_level,
+                ui=self.init_ui,
                 redirect=self.redirect,
             )
             raise FileNotFoundError
@@ -445,6 +442,8 @@ class UI(tk.Tk):
             foreground=myTabForegroundColor, lightcolor=myTabBarColor,
             borderwidth=0, bordercolor=myTabBackgroundColor, font=self.tab_font)
 
+
+    # pyCrust Methods - Available for Dev needs!
     def set_frame(self, widget):
         self.MasterPane._main.set_frame(widget)
 
@@ -835,9 +834,18 @@ class UI(tk.Tk):
                 relief='flat',
                 wrap='word', 
             )
-            # Update the GLobal "ACTIVE_CONSOLE" for write redirects.
-            global ACTIVE_CONSOLE
-            ACTIVE_CONSOLE = self
+            # Debug pre-fill
+            self._text.insert(tk.END, '''
+Checking for an exisisting config.JSON file.
+JSON file already exist!
+Successfully loaded the config file.
+{'version': '0.0', 'username': 'toyolandi', 'theme': 'Resetto'}
+SQLite3 started successfully! - Connected to DB.
+Starting logicDaemon Processing Loop
+ThemeEngine is starting!
+Available Themes:('Resetti', 'winnative', 'clam', 'alt', 'default', 'classic', 'vista', 'xpnative')
+Superclassing w/ UI_Sidebar.
+            ''')
         
         def config_grid(self):
             self.rowconfigure(1, weight=1)
@@ -847,14 +855,7 @@ class UI(tk.Tk):
             self._minimize.grid(row=0, column=0, sticky='nse')
 
             self._text.grid(row=1, column=1, sticky='nsew')
-
-        def std_console(self, string):
-            '''
-            Writes output tagged as "Standard" to the console.
-            '''
-            self._text.insert (tk.END, string)
-
-
+            
 
     class UI_BottomBar(ttk.Frame):
         '''
