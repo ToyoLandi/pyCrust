@@ -18,8 +18,8 @@
 import os
 import time
 import json
-import ctypes
 import queue
+import ctypes
 import sqlite3
 import logging
 import threading
@@ -30,6 +30,7 @@ from turtle import back
 
 VERSION = '0.0'
 ROOTPATH = os.getcwd()
+ACTIVE_CONSOLE = None
 
 
 class write:
@@ -37,18 +38,25 @@ class write:
     Allows for print statements to be sent to the Terminal (print), as well
     as to the standard logging, and to the UI if requested.
     '''
-    def __init__(self, string, log_level=0, ui=None, redirect=0):
+    def __init__(self, string, log_level=0, redirect=0):
         self.string = string
+        
         #pyCrust Hooks
         self.log_level = log_level
-        self.init_ui = ui
+        self.active_console = ACTIVE_CONSOLE
         self.redirect = redirect
         # Actually send string to defined locations.
         self.write_outputs()
 
     def write_outputs(self):
-        if self.redirect == 0:
+        # Handle UI output location
+        if self.active_console != None and self.redirect == 1:
+            print("\t ui>", self.string)
+            self.active_console.std_console(self.string)
+        elif self.redirect == 0:
             print(str(self.string))
+
+        # Handle Log handler location
         if self.log_level == 1:
             # Write to Standard log.
             logging.info(self.string)
@@ -92,7 +100,6 @@ class Config:
             string=('Checking for an exisisting config.' + self.extension 
                 + ' file.'),
             log_level=self.log_level,
-            ui=self.init_ui,
             redirect=self.redirect,
         )
         alive = os.access(self._confpath, os.W_OK)
@@ -100,7 +107,6 @@ class Config:
             write(
                 string='JSON file already exist!',
                 log_level=self.log_level,
-                ui=self.init_ui,
                 redirect=self.redirect,
             )
         if alive and self.extension == 'XML':
@@ -116,7 +122,6 @@ class Config:
             write(
                 string='Generated a new "config.json" file.',
                 log_level=self.log_level,
-                ui=self.init_ui,
                 redirect=self.redirect,
             )
 
@@ -128,7 +133,6 @@ class Config:
                 write(
                     string='Successfully loaded the config file.',
                     log_level=self.log_level,
-                    ui=self.init_ui,
                     redirect=self.redirect,
                 )
                 return self._config
@@ -138,7 +142,6 @@ class Config:
             write(
                 string='Unable to find the config file at "' + self._confpath + '"',
                 log_level=self.log_level,
-                ui=self.init_ui,
                 redirect=self.redirect,
             )
             raise FileNotFoundError
@@ -286,10 +289,13 @@ class UI(tk.Tk):
         # to process something for some time.
         self._Logic = self.LogicThread()
 
-        # Intializing Main Tk/Ttk Classes
+        # Intializing Main Tk/Ttk Classes and vars.
+        # Do not change initalization order. "Console" *MUST* be last.
         self._ThemeEngine = self.ThemeEngine()
-        self.MasterPane = self.UI_RootPane(self)
-        self.BottomBar = self.UI_BottomBar(self)
+        self.RootPane = UI.UI_RootPane(self)
+        self.BottomBar = UI.UI_BottomBar(self)
+        self.console_shown = False
+        self.Console = self.UI_Console(self.RootPane._main, self)
 
         # Fullscreen Var for <Alt-Enter>
         self.w_fullscreen = False
@@ -300,7 +306,6 @@ class UI(tk.Tk):
         self._config_grid()
         self._config_binds()
 
-    
     # Tk/UI Methods
     def _config_widgets(self):
         '''
@@ -317,7 +322,7 @@ class UI(tk.Tk):
         '''
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
-        self.MasterPane.grid(row=0,
+        self.RootPane.grid(row=0,
             column=0, 
             #columnspan=5, 
             sticky='nsew')
@@ -334,9 +339,10 @@ class UI(tk.Tk):
         # Misc
         self.title("pyCrust")
         self.geometry('800x494')
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
         #titlebar_photo = tk.PhotoImage(file=self.RPATH + "\\core\\bcamp.gif")
         #self.iconphoto(False, titlebar_photo)
+        # Set DPI awareness for 4k displays.
+        #ctypes.windll.shcore.SetProcessDpiAwareness(1)
 
     def _config_binds(self):
         self.bind('<Control-`>', self.reveal_install_loc)
@@ -442,20 +448,43 @@ class UI(tk.Tk):
             foreground=myTabForegroundColor, lightcolor=myTabBarColor,
             borderwidth=0, bordercolor=myTabBackgroundColor, font=self.tab_font)
 
+    def _rmchild(container_widget):
+        '''
+        Convience method to remove all children within a container widget.
+        '''
+        for child in container_widget.winfo_children():
+            container_widget.forget(child)
 
-    # pyCrust Methods - Available for Dev needs!
     def set_frame(self, widget):
-        self.MasterPane._main.set_frame(widget)
+        self.RootPane.set_mainframe(widget)
 
     def add_sidebar(self, widget):
-        self.MasterPane._sidebar.add(widget)
+        self.RootPane._sidebar.add(widget)
     
     def show_console(self):
-        self.MasterPane.show_console()
+        '''
+        Will render the embedded console window.
+        '''
+        self.console_shown = True
+        self.RootPane.show_console()
     
     def minimize_console(self):
-        self.MasterPane.minimize_console()
+        '''
+        Minimizes the embedded console window.
+        '''
+        self.console_shown = False
+        self.RootPane.hide_console()
+        write("minimize console called!", 2, 1)
     
+    def _toggle_console(self, event=None):
+        if self.console_shown:
+            # Inverse switch
+            self.minimize_console()
+            self.console_shown = False
+        else:
+            self.show_console() 
+            self.console_shown = True
+
     def reveal_install_loc(self, event): 
         os.startfile(ROOTPATH)
     
@@ -673,6 +702,19 @@ class UI(tk.Tk):
                                             ("!disabled", bg_0)],
                         }
                     },
+                    #--> BottomBar Button
+                    "BottomBar.TButton": {
+                        "configure": {
+                            "padding": 1,
+                            "relief": 'flat'
+                        },
+                        "map": {
+                            "background": [("active", bg_0),
+                                            ("!disabled", bg_0)],
+                            "foreground": [("active", fg_0),
+                                            ("!disabled", fg_0)],
+                        }
+                    },
                     #--> BottomBar Separator
                     "BottomBarSep.TFrame": {
                         "configure": {
@@ -714,6 +756,7 @@ class UI(tk.Tk):
         '''
         def __init__(self, master):
             super().__init__(master=master, orient=tk.HORIZONTAL)
+            self.ui = master
             self.configure(
                 background="#32302F",
                 sashwidth=2
@@ -724,53 +767,46 @@ class UI(tk.Tk):
             '''
             Defines the Sidebar, Main, and Console Windows.
             '''
-            self._main = UI.UI_Main(self)
+            self._main = tk.PanedWindow(
+                self,
+                orient=tk.VERTICAL,
+                background="#32302F",
+                sashwidth=2
+            )
             self._sidebar = UI.UI_Sidebar(self)
             self.add(self._sidebar)
             self.add(self._main)
         
         def show_console(self):
-            '''
-            Expands the console window. This is default behavior when no 
-            'frame' is set.
-            '''
-            # Expliclty defining in the event of a collapse.
-            self._console = UI.UI_Console
-            self._main.add_child(self._console)
-        
-        def minimize_console(self):
-            '''
-            Collapses the console window, which can be expanded later.
-            '''
-            self._main.forget(1)
-        
+            self._main.add(self.ui.Console)
+
         def hide_console(self):
             '''
             Removes the console from the window completely.
             '''
+            self._main.forget(self.ui.Console)
 
-
-    class UI_Main(tk.PanedWindow):
-        def __init__(self, master):
-            super().__init__(master=master, orient=tk.VERTICAL)
-            self.configure(
-                background="#32302F",
-                sashwidth=2
-            )
-            # And render main frame.
-            self._frame = ttk.Frame(
-                self,
-            )
-            self.add(self._frame, )
-
-        def set_frame(self, widget):
-            _widget = widget(self._frame)
-            _widget.grid(row=0, column=0)
-
-        def add_child(self, widget):
-            # Initalize w/ local parent
-            _widget = widget(self)
-            self.add(_widget, height=150)
+        def set_mainframe(self, widget):
+            '''
+            Remove previous frames if any. Then grid content into "self._frame"            
+            '''
+            # "Forget" previous rendered frame.
+            for childpane in self._main.panes():
+                if str(childpane) != ".!ui_rootpane.!panedwindow.!ui_console":
+                    self._main.forget(childpane)
+            # Initalize w/ local parent of 'self._main'
+            _widget = widget(self._main)
+            try:
+                self._main.add(
+                    _widget, 
+                    before=self.ui.Console,
+                    sticky='nsew'
+                )
+            except tk.TclError: #thrown when Console not yet added.
+                self._main.add(
+                    _widget,
+                    sticky='nsew'
+                )
 
 
     class UI_Frame(ttk.Frame):
@@ -795,8 +831,9 @@ class UI(tk.Tk):
         
 
     class UI_Console(UI_Frame):
-        def __init__(self, master):
+        def __init__(self, master, ui):
             super().__init__(master=master)
+            self.ui = ui
             self._bg = '#1D2021'
             self._fg = '#83A598'
             self._cursor = '#FABD2F'
@@ -820,6 +857,7 @@ class UI(tk.Tk):
                 self._topbar,
                 style="Console.TButton",
                 text="x",
+                command=self.ui.minimize_console
             )
             # Textbox for console outputs.
             self._text = tk.Text(
@@ -834,18 +872,9 @@ class UI(tk.Tk):
                 relief='flat',
                 wrap='word', 
             )
-            # Debug pre-fill
-            self._text.insert(tk.END, '''
-Checking for an exisisting config.JSON file.
-JSON file already exist!
-Successfully loaded the config file.
-{'version': '0.0', 'username': 'toyolandi', 'theme': 'Resetto'}
-SQLite3 started successfully! - Connected to DB.
-Starting logicDaemon Processing Loop
-ThemeEngine is starting!
-Available Themes:('Resetti', 'winnative', 'clam', 'alt', 'default', 'classic', 'vista', 'xpnative')
-Superclassing w/ UI_Sidebar.
-            ''')
+            # Update the GLobal "ACTIVE_CONSOLE" for write redirects.
+            global ACTIVE_CONSOLE
+            ACTIVE_CONSOLE = self
         
         def config_grid(self):
             self.rowconfigure(1, weight=1)
@@ -855,7 +884,13 @@ Superclassing w/ UI_Sidebar.
             self._minimize.grid(row=0, column=0, sticky='nse')
 
             self._text.grid(row=1, column=1, sticky='nsew')
-            
+
+        def std_console(self, string):
+            '''
+            Writes output tagged as "Standard" to the console.
+            '''
+            self._text.insert (tk.END, (str(string) + '\n'))
+
 
     class UI_BottomBar(ttk.Frame):
         '''
@@ -868,6 +903,7 @@ Superclassing w/ UI_Sidebar.
             self.progress_strVar = tk.StringVar()
             self.progress_perc_strVar = tk.StringVar()
             # Render widgets.
+            self.ui = master
             self.config_widgets()
             self.config_grid()
 
@@ -898,20 +934,27 @@ Superclassing w/ UI_Sidebar.
                 self,
                 style="BottomBar.TFrame"
             )
+            self.bb_console = ttk.Button(
+                self.right_frame,
+                style="BottomBar.TButton",
+                text=">_",
+                command=self.ui._toggle_console
+            )            
             self.bb_ver = ttk.Label(
                 self.right_frame,
                 text=VERSION,
                 style="BottomBar.TLabel"
             )
+            self.bb_ver_tt = UI.CustomTk_CreateToolTip(
+                self.bb_ver, "pyCrust Version\nWritten by Collin Spears."
+            )
+
             # Seperator
             self.bb_seperator = ttk.Frame(
                 self,
                 style="BottomBarSep.TFrame"
             )
-            self.bb_ver_tt = UI.CustomTk_CreateToolTip(
-                self.bb_ver, "pyCrust Version\nWritten by Collin Spears."
-            )
-
+            
         def config_grid(self):
             #self.rowconfigure(0, weight=1)
             self.rowconfigure(1, weight=1)
@@ -938,7 +981,8 @@ Superclassing w/ UI_Sidebar.
                 row=0, column=2, sticky='nsw', padx=1, pady=5
             )
             # Conn Frame Grid
-            self.bb_ver.grid(row=0, column=0, sticky='se', padx=5, pady=5)
+            self.bb_console.grid(row=0, column=0, sticky='se', padx=5, pady=5)
+            self.bb_ver.grid(row=0, column=1, sticky='se', padx=5, pady=5)
 
 
         # ProgressBar Methods

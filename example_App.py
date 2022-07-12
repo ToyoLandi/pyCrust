@@ -15,7 +15,7 @@ Log Levels:
     2 ... Debug Level logging written to 'main.log'
 
 '''
-applog = pyCrust.Logging()
+#applog = pyCrust.Logging()
 
 
 '''
@@ -64,6 +64,21 @@ class ExampleWidget(tk.Frame):
         )
         self.button.grid(row=0, column=0)
 
+    def hide_console(self):
+        rootui.minimize_console()
+        pyCrust.write ('example custom.string.', 1, 1)
+
+class ExampleWidget2(tk.Frame):
+    def __init__(self, master):
+        super().__init__(master=master)
+
+        self.button = tk.Button(
+            self,
+            text="Start task Window",
+            command=self.button_cmd
+        )
+        self.button.grid(row=0, column=0)
+
     def button_cmd(self):
         rootui.add_task(self.dummyTask, args=(2,9), name='LilDummy')
 
@@ -72,12 +87,16 @@ class ExampleWidget(tk.Frame):
         time.sleep(5)
         print(a + b * 16)
 
-    def hide_console(self):
-        rootui.minimize_console()
+        
 
 # Adding some widgets to the different 'zones'.
 #rootui.set_frame(ExampleWidget)
 #rootui.add_sidebar(ExampleWidget)
-rootui.show_console()
+#rootui.show_console()
+pyCrust.write ('test to UI message!!', 1, 1)
+pyCrust.write ('test to non-UI message!!', 1, 0)
+
+rootui.set_frame(ExampleWidget)
+rootui.set_frame(ExampleWidget2)
 rootui.launch()
 # Anything beyond this point will be blocked by the UI 'mainloop'.
